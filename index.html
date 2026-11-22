@@ -367,12 +367,14 @@ button{font:inherit;cursor:pointer}.app{max-width:1120px;margin:auto;padding:22p
  <div class="footer">С любовью — для самых дорогих мам 💗</div>
 </div>
 <audio id="cluckAudio" src="assets/chicken-cluck.mp3" preload="metadata"></audio>
-<audio id="danceAudio" src="assets/dance-music.mp3" preload="none"></audio>
+<audio id="danceAudio" src="assets/dance-music.mp3" preload="auto"></audio>
 <audio id="applauseAudio" src="assets/applause.mp3" preload="none"></audio>
 <audio id="celebrationAudio" src="assets/celebration.mp3" preload="none"></audio>
 <script>
 const screens=[...document.querySelectorAll('.screen')];
 function show(id){
+ const activeScreen=screens.find(screen=>screen.classList.contains('active'));
+ if(activeScreen&&activeScreen.id==='birdyard'&&id!=='birdyard')stopCluckSound();
  screens.forEach(s=>s.classList.toggle('active',s.id===id));
  const labels={intro:'Приключение начинается',pantry:'Этап 1 из 5 · Собираем ингредиенты',success:'Первый ингредиент найден',birdyard:'Этап 2 из 5 · Собираем ингредиенты',eggSuccess:'Второй ингредиент найден',meadow:'Этап 3 из 5 · Собираем ингредиенты',milkSuccess:'Третий ингредиент найден',kitchenDance:'Этап 4 из 5 · Взбиваем крем',creamSuccess:'Четвёртый этап завершён',garden:'Этап 5 из 5 · Собираем ягоды',finale:'Праздничный финал · С Днём Матери!'};
  document.getElementById('progress').textContent=labels[id]||'Сказочное приключение';
@@ -393,8 +395,15 @@ let soundEnabled=true;
 function setSoundEnabled(enabled){
  soundEnabled=enabled;
  audioTracks.forEach(track=>{track.muted=!enabled;});
+ if(!enabled)stopCluckSound();
  soundToggle.textContent=enabled?'🔊 Звук включён':'🔇 Звук выключен';
  soundToggle.setAttribute('aria-pressed',String(enabled));
+ if(enabled&&danceInterval&&!danceUsesAudioClock){
+  const elapsed=getDanceElapsedSeconds();
+  playDanceMusic(elapsed).then(started=>{
+   if(started&&danceInterval){danceUsesAudioClock=true;danceStatus.textContent='Музыка подключилась к танцу — теперь всё идёт в такт!';}
+  });
+ }
 }
 soundToggle.addEventListener('click',()=>setSoundEnabled(!soundEnabled));
 function playEffect(track){
@@ -421,6 +430,11 @@ function playCluck(){
  try{cluckAudio.currentTime=0;const p=cluckAudio.play();if(p&&p.then){p.then(()=>{soundStatus.textContent='Кудах-кудах! Слушай внимательно 👂';}).catch(()=>{soundStatus.textContent='Нажми «Послушать ещё раз», чтобы включить звук.';});}}
  catch(e){soundStatus.textContent='Нажми «Послушать ещё раз», чтобы включить звук.';}
 }
+function stopCluckSound(){
+ if(!cluckAudio)return;
+ cluckAudio.pause();
+ try{cluckAudio.currentTime=0;}catch(e){}
+}
 document.getElementById('toBirdyard').addEventListener('click',()=>{show('birdyard');playCluck();});
 document.getElementById('playCluck').addEventListener('click',playCluck);
 const birdStatus=document.getElementById('birdStatus');
@@ -428,6 +442,7 @@ const birdBasket=document.getElementById('birdBasket');
 const eggsNext=document.getElementById('eggsNext');
 document.querySelectorAll('.bird-choice').forEach(btn=>btn.addEventListener('click',()=>{
  if(eggsLocked)return;
+ stopCluckSound();
  if(btn.dataset.bird==='chicken'){
   eggsLocked=true;btn.classList.add('correct');document.querySelectorAll('.bird-choice').forEach(b=>b.disabled=true);
   birdBasket.textContent='🌾 🥚🥚';birdStatus.textContent='Ко-ко-ко! Правильно, это курочка! Она поделилась с нами свежими яичками. Ура! 👏';
@@ -475,19 +490,26 @@ const startDanceBtn=document.getElementById('startDance');
 const creamBowl=document.getElementById('creamBowl');
 const bowlCaption=document.getElementById('bowlCaption');
 const creamReveal=document.getElementById('creamReveal');
-let danceInterval=null,danceRemaining=DANCE_DURATION_SECONDS,danceFinished=false;
+let danceInterval=null,danceRemaining=DANCE_DURATION_SECONDS,danceFinished=false,danceStarting=false,danceUsesAudioClock=false,danceClockStartedAt=null;
 function formatTime(seconds){return '00:'+String(seconds).padStart(2,'0');}
-function playDanceMusic(){
- if(!soundEnabled){danceStatus.textContent='Звук выключен — можно включить его кнопкой вверху.';return;}
+function playDanceMusic(startAt=0){
+ if(!soundEnabled){danceStatus.textContent='Звук выключен — можно включить его кнопкой вверху.';return Promise.resolve(false);}
  try{
-  danceAudio.currentTime=0;
+  danceAudio.currentTime=Math.min(Math.max(0,startAt),DANCE_DURATION_SECONDS-.05);
   const playback=danceAudio.play();
-  if(playback&&playback.catch)playback.catch(()=>{danceStatus.textContent='Музыку не удалось включить. Танцуй по подсказкам — таймер продолжает идти!';});
- }catch(e){danceStatus.textContent='Музыку не удалось включить. Танцуй по подсказкам — таймер продолжает идти!';}
+  if(playback&&playback.then)return playback.then(()=>true).catch(()=>{danceStatus.textContent='Музыку не удалось включить. Танцуй по подсказкам — таймер продолжает идти!';return false;});
+  return Promise.resolve(true);
+ }catch(e){danceStatus.textContent='Музыку не удалось включить. Танцуй по подсказкам — таймер продолжает идти!';return Promise.resolve(false);}
+}
+function getDanceElapsedSeconds(){
+ if(danceUsesAudioClock&&!danceAudio.paused)return danceAudio.currentTime;
+ if(danceClockStartedAt===null)return 0;
+ return Math.max(0,(performance.now()-danceClockStartedAt)/1000);
 }
 function stopDanceMusic(){
  danceAudio.pause();
  try{danceAudio.currentTime=0;}catch(e){}
+ danceUsesAudioClock=false;danceClockStartedAt=null;danceStarting=false;
 }
 function danceCueFor(elapsed){
  if(elapsed<9){danceCue.textContent='Крутим ручками, как миксер! 🌀';danceSubcue.textContent='Поставь локти в стороны и вращай ладошками перед собой.';}
@@ -504,16 +526,26 @@ function finishDance(){
  creamBowl.disabled=false;creamBowl.classList.add('ready');danceFinished=true;
 }
 function startDance(){
- if(danceInterval||danceFinished)return;
+ if(danceInterval||danceStarting||danceFinished)return;
+ danceStarting=true;
  danceRemaining=DANCE_DURATION_SECONDS;danceTimerEl.textContent=formatTime(danceRemaining);danceBar.style.width='0%';
- startDanceBtn.disabled=true;startDanceBtn.textContent='Танцуем!';danceStatus.textContent='Музыка играет — повторяй движения!';
- playDanceMusic();danceCueFor(0);
- const startedAt=performance.now();
- danceInterval=window.setInterval(()=>{
-  const elapsed=Math.min(DANCE_DURATION_SECONDS,Math.floor((performance.now()-startedAt)/1000));
-  danceRemaining=Math.max(0,DANCE_DURATION_SECONDS-elapsed);danceTimerEl.textContent=formatTime(danceRemaining);danceBar.style.width=(elapsed/DANCE_DURATION_SECONDS*100)+'%';danceCueFor(elapsed);
-  if(elapsed>=DANCE_DURATION_SECONDS)finishDance();
- },200);
+ startDanceBtn.disabled=true;startDanceBtn.textContent='Готовим музыку…';danceStatus.textContent='Синхронизируем музыку, таймер и движения…';danceCueFor(0);
+ const beginClock=hasMusic=>{
+  danceStarting=false;
+  if(danceFinished)return;
+  danceUsesAudioClock=hasMusic&&!danceAudio.paused;
+  danceClockStartedAt=performance.now();
+  startDanceBtn.textContent='Танцуем!';
+  if(danceUsesAudioClock)danceStatus.textContent='Музыка играет — таймер и движения идут в такт!';
+  else if(!soundEnabled)danceStatus.textContent='Танец начался без музыки. Включи звук сверху, чтобы подключить её в такт.';
+  danceInterval=window.setInterval(()=>{
+   const elapsedSeconds=getDanceElapsedSeconds();
+   const elapsed=Math.min(DANCE_DURATION_SECONDS,Math.floor(elapsedSeconds));
+   danceRemaining=Math.max(0,DANCE_DURATION_SECONDS-elapsed);danceTimerEl.textContent=formatTime(danceRemaining);danceBar.style.width=(elapsed/DANCE_DURATION_SECONDS*100)+'%';danceCueFor(elapsed);
+   if(elapsedSeconds>=DANCE_DURATION_SECONDS)finishDance();
+  },100);
+ };
+ playDanceMusic(0).then(beginClock).catch(()=>beginClock(false));
 }
 startDanceBtn.addEventListener('click',startDance);
 danceAudio.addEventListener('ended',()=>{if(danceInterval)finishDance();});
